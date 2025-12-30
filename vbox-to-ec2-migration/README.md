@@ -1,5 +1,4 @@
-# VirtualBox VMをAWS EC2に移行
-
+# VirtualBox 仮想マシンをAWS EC2に移行する検証
 
 ## 検証の背景
 2025/12現在、RHEL7はすでにサポートが終了しているが、依然として多くの既存システムで稼働しており、短期間でのOSアップデートが難しいケースが多い。
@@ -26,9 +25,7 @@
 [https://docs.aws.amazon.com/ja_jp/vm-import/latest/userguide/what-is-vmimport.html](https://docs.aws.amazon.com/ja_jp/vm-import/latest/userguide/what-is-vmimport.html)
 
 ### フェーズ1: Terraformで基盤を構築
-
 Terraformで以下のリソースをまとめて構築する。
-
 - S3バケット（VM Import用）
 - IAMロール（VM Import用）
 - VPC
@@ -36,12 +33,9 @@ Terraformで以下のリソースをまとめて構築する。
 - Internet Gateway
 - Route Table + Association
 - Security Group
-
 なぜ IAM ロールを作成する必要があるのか。
 それは後述する aws ec2 import-image によるAMI変換処理が、CLIを実行したユーザではなくAWSの VM Import/Exportサービスによって実行されるためである。
-
 そのため、S3 上の OVA にアクセスする権限をAWSサービスへ委譲する必要があり、VM Import 用の IAMロールを事前に作成する必要がある。
-
 では以下のmain.tfファイルを使用し、VM Import/Export に必要なリソースを作成する。
 
 main.tf
