@@ -1,32 +1,191 @@
 # EC2をSSM Managed Instanceに認識させる
 
+## 概要
+
+- 目的: SSM Agent は入っているが Managed Instance として認識されない EC2 を解消する
+- 結果: IAM ロールとアウトバウンド通信設定を整えることで認識される
+- 要点: 「IAM ロール + Instance Profile + 0.0.0.0/0 の疎通」が必須
+
+## この記事で分かること
+
+- SSM Agent があっても認識されない原因
+- SSM Managed Instance に必要な IAM 構成
+- Terraform での最小構成例
+- SSM が利用するアウトバウンド通信要件
+- 認識確認のチェックポイント
+
 ## 検証の背景
-RHEL7を搭載した既存EC2に対し、AWS Systems Manager Automationを利用した検証を行う必要があった。
-しかし、既存EC2へはSSM Agentを導入済みであるにもかかわらず、Systems ManagerからはManaged Instanceとして認識されておらず、Automation Runbookの実行に失敗する状態であった。
-本検証では、Terraformを用いてIAM設定を整理し、EC2をSystems ManagerのManaged Instanceとして認識させるまでの手順を確認する。
+
+Amazon Linux 2023 を搭載した EC2 に対し、AWS Systems Manager Automation（Runbook）を利用した検証を行う必要があった。
+
+Amazon Linux 2023 では **SSM Agent は標準でインストール済み**であるにもかかわらず、Systems Manager 上で **Managed Instance として認識されず**、Automation Runbook の実行に失敗する状態となった。本記事では、**Amazon Linux 2023 において EC2 を SSM Managed Instance として認識させるまでの最短手順**を、Terraform を用いた IAM 設定を中心に整理する。
 
 ## 前提条件
-- EC2で動作する RHEL7 仮想マシンが存在すること
-    - OSはRed Hat Enterprise Linux 7.2
-    - SSH ログイン可能であること
-- AWS CLI / IAM 権限を利用できる環境であること
-- Terraform の基本操作に慣れていること
 
-## 全体の流れ
-以下の流れで検証を進める。
+- EC2 が Amazon Linux 2023 で起動していること
+- Kernel: 6.x（AL2023 標準）
+- EC2 へ SSH ログイン可能であること
+- AWS CLI を実行できる環境
+- Terraform の基本操作が可能であること
+- EC2 の IAM ロール / SG を変更できる権限
+- EC2 が Internet Gateway 経由で外部通信可能（今回の検証範囲）
 
-Step1:EC2がSSMに認識されていないことを確認
+## 手順
 
-Step2:EC2にSSM Agentが存在することを確認
+### Step0:環境構築
 
-Step3:EC2にIAMロールが付与されているか確認
+terraformで検証環境を用意する。使用したtfファイルは以下。AMI IDは公式が提供しているID。
 
-Step4:SSMへのアウトバウンド通信を確認
+```hcl
+# ---------------------------------------
+# Terraform configuration
+# ---------------------------------------
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~>6.0"
+    }
+  }
+}
 
-Step5:EC2がSSMに認識されていることを確認
+provider "aws" {
+  region = "ap-northeast-1"
+}
+
+# ---------------------------------------
+# Variables
+# ---------------------------------------
+variable "project" {
+  type    = string
+  default = "ssm-ready"
+}
+
+variable "environment" {
+  type    = string
+  default = "dev"
+}
+
+# ---------------------------------------
+# VPC / Subnet / Route / IGW
+# ---------------------------------------
+resource "aws_vpc" "vpc" {
+  cidr_block = "192.168.0.0/20"
+
+  tags = {
+    Name    = "${var.project}-${var.environment}-vpc"
+    Project = var.project
+    Env     = var.environment
+  }
+}
+
+resource "aws_subnet" "public_subnet_1a" {
+  vpc_id                  = aws_vpc.vpc.id
+  cidr_block              = "192.168.1.0/24"
+  availability_zone       = "ap-northeast-1a"
+  map_public_ip_on_launch = true
+
+  tags = {
+    Name    = "${var.project}-${var.environment}-public-subnet-1a"
+    Project = var.project
+    Env     = var.environment
+    type    = "public"
+  }
+}
+
+resource "aws_route_table" "public_rt" {
+  vpc_id = aws_vpc.vpc.id
+
+  tags = {
+    Name    = "${var.project}-${var.environment}-public-rt"
+    Project = var.project
+    Env     = var.environment
+    type    = "public"
+  }
+}
+
+resource "aws_route_table_association" "public-rt-1a" {
+  route_table_id = aws_route_table.public_rt.id
+  subnet_id      = aws_subnet.public_subnet_1a.id
+}
+
+resource "aws_internet_gateway" "igw" {
+  vpc_id = aws_vpc.vpc.id
+
+  tags = {
+    Name    = "${var.project}-${var.environment}-igw"
+    Project = var.project
+    Env     = var.environment
+  }
+}
+
+resource "aws_route" "public_rt_igw_r" {
+  route_table_id         = aws_route_table.public_rt.id
+  destination_cidr_block = "0.0.0.0/0"
+
+  gateway_id = aws_internet_gateway.igw.id
+}
+
+# ---------------------------------------
+# Security Group
+# ---------------------------------------
+resource "aws_security_group" "ssh_sg" {
+  name        = "${var.project}-${var.environment}-ssh-sg"
+  description = "ssh security group"
+  vpc_id      = aws_vpc.vpc.id
+
+  tags = {
+    Name    = "${var.project}-${var.environment}-ssh-sg"
+    Project = var.project
+    Env     = var.environment
+  }
+}
+
+resource "aws_security_group_rule" "ssh_in" {
+  security_group_id = aws_security_group.ssh_sg.id
+  type              = "ingress"
+  protocol          = "tcp"
+  from_port         = 22
+  to_port           = 22
+  cidr_blocks       = ["0.0.0.0/0"]
+}
+
+# ---------------------------------------
+# Key Pair
+# ---------------------------------------
+resource "aws_key_pair" "ssh" {
+  key_name   = "${var.project}-${var.environment}-keypair"
+  public_key = file("./vmimport-key.pub")
+
+  tags = {
+    Name    = "${var.project}-${var.environment}-keypair"
+    Project = var.project
+    Env     = var.environment
+  }
+}
+
+# ---------------------------------------
+# EC2 Instance
+# ---------------------------------------
+resource "aws_instance" "ssmec2" {
+  ami                         = "ami-09cd9fdbf26acc6b4"
+  instance_type               = "t3.micro"
+  subnet_id                   = aws_subnet.public_subnet_1a.id
+  associate_public_ip_address = true
+  vpc_security_group_ids = [aws_security_group.ssh_sg.id]
+  key_name               = aws_key_pair.ssh.key_name
+
+  tags = {
+    Name    = "${var.project}-${var.environment}-ssmec2"
+    Project = var.project
+    Env     = var.environment
+  }
+}
+```
 
 ### Step1:SSMに認識されていないことを確認
-まずは以下のコマンドで当該インスタンスの情報が表示されないことを確認する。もしインスタンスの情報が表示されるようであれば以降の作業は不要
+
+まずは以下のコマンドで当該インスタンスの情報が表示されないことを確認する。もしインスタンスの情報が表示されるようであれば今回の作業は不要
 
 ```bash
 ##SSM登録状況確認（実行結果にインスタンスの情報が表示されないことを確認する）
@@ -35,7 +194,7 @@ aws ssm describe-instance-information
 
 ### Step2:EC2にSSM Agentが存在することを確認
 
-対象のRHEL7にSSMがインストールされているか確認する。コマンドの詳細は以下参照
+対象のEC2にSSMがインストールされているか確認する。コマンドの詳細は以下参照
 
 参考：[https://docs.aws.amazon.com/ja_jp/systems-manager/latest/userguide/agent-install-rhel-7.html](https://docs.aws.amazon.com/ja_jp/systems-manager/latest/userguide/agent-install-rhel-7.html)
 
@@ -109,25 +268,25 @@ resource "aws_iam_instance_profile" "ssm_ec2_profile" {
 
 ```
 
-インスタンスプロファイルを作成したら、EC2 リソース側にもその設定を記述する必要がある。
+インスタンスプロファイルを作成したら、EC2 リソース側にもその設定を追記する必要がある。
 
-以下のiam_instance_profile行が該当箇所である。
+以下のiam_instance_profile行が追記箇所である。
 
 ```hcl
 # ---------------------------------------
 # EC2 Instance
 # ---------------------------------------
-resource "aws_instance" "imported" {
-  ami                         = data.aws_ami.imported.id
-  instance_type               = "c4.large"
+resource "aws_instance" "ssmec2" {
+  ami                         = "ami-09cd9fdbf26acc6b4"
+  instance_type               = "t3.micro"
   subnet_id                   = aws_subnet.public_subnet_1a.id
   associate_public_ip_address = true
   iam_instance_profile        = aws_iam_instance_profile.ssm_ec2_profile.name
-  vpc_security_group_ids      = [aws_security_group.ssh_sg.id]
-  key_name                    = aws_key_pair.ssh.key_name
+  vpc_security_group_ids = [aws_security_group.ssh_sg.id]
+  key_name               = aws_key_pair.ssh.key_name
 
   tags = {
-    Name    = "${var.project}-${var.environment}-imported"
+    Name    = "${var.project}-${var.environment}-ssmec2"
     Project = var.project
     Env     = var.environment
   }
@@ -151,23 +310,25 @@ SSM Agentは、以下のAWSマネージドエンドポイントに対してア�
 - ec2messages.<region>.amazonaws.com
 - ssmmessages.<region>.amazonaws.com
 
-参考１：[https://docs.aws.amazon.com/ja_jp/systems-manager/latest/userguide/setup-create-vpc.html](https://docs.aws.amazon.com/ja_jp/systems-manager/latest/userguide/setup-create-vpc.html)
+参考：[https://docs.aws.amazon.com/ja_jp/systems-manager/latest/userguide/setup-create-vpc.html](https://docs.aws.amazon.com/ja_jp/systems-manager/latest/userguide/setup-create-vpc.html)
 
-参考２：[https://docs.aws.amazon.com/ja_jp/prescriptive-guidance/latest/patterns/connect-to-an-amazon-ec2-instance-by-using-session-manager.html](https://docs.aws.amazon.com/ja_jp/prescriptive-guidance/latest/patterns/connect-to-an-amazon-ec2-instance-by-using-session-manager.html)
+[https://docs.aws.amazon.com/ja_jp/prescriptive-guidance/latest/patterns/connect-to-an-amazon-ec2-instance-by-using-session-manager.html](https://docs.aws.amazon.com/ja_jp/prescriptive-guidance/latest/patterns/connect-to-an-amazon-ec2-instance-by-using-session-manager.html)
 
-EC2がプライベートサブネットに配置されている場合は、上記エンドポイントに対応する VPC エンドポイントを作成する必要がある。
+そのため、EC2がプライベートサブネットに配置されている場合は、上記エンドポイントに対応する VPC エンドポイントを作成する必要がある。
 
-一方で、今回のEC2はInternet Gatewayに接続されたVPC上に配置されているため、VPCエンドポイントの作成は不要である。
+一方、今回のEC2はInternet Gatewayに接続されたVPC上に配置されているため、VPCエンドポイントの作成は不要である。
 
-ただし、**EC2 が0.0.0.0/0宛にアウトバウンド通信できること**は前提条件となる。そのため、当該インスタンスにアタッチされているセキュリティグループのアウトバウンドルールを以下のコマンドで確認する。
+ただし、**EC2 が0.0.0.0/0宛にアウトバウンド通信できること**は前提条件となる。
+
+そのため、当該インスタンスにアタッチされているセキュリティグループのアウトバウンドルールを以下のコマンドで確認する。
 
 ```bash
 aws ec2 describe-security-groups \
   --group-ids sg-xxxxxxxx \
-  --query"SecurityGroups[].IpPermissionsEgress"
+  --query "SecurityGroups[].IpPermissionsEgress"
 ```
 
-この結果に0.0.0.0/0が含まれていれば問題ない。しかしTerraformで設定を行った場合、これらのアウトバンドルールは別途設定する必要がありそうだ。そのためmain.tfにて以下のセクションを追記しapplyする
+この結果に0.0.0.0/0が含まれていれば問題ない。しかしTerraformで設定を行った場合、これらのアウトバンドルールは別途設定する必要がある。そのためstep0で記載した# Security Groupセクションに以下の内容を追記する
 
 ```hcl
 resource "aws_security_group_rule" "allow_all_egress" {
@@ -185,7 +346,7 @@ resource "aws_security_group_rule" "allow_all_egress" {
 ```bash
 aws ec2 describe-security-groups \
   --group-ids sg-xxxxxxxx \
-  --query"SecurityGroups[].IpPermissionsEgress"
+  --query "SecurityGroups[].IpPermissionsEgress"
 ```
 
 ### Step5:SSMに認識されていることを確認
@@ -217,3 +378,5 @@ aws ssm describe-instance-information
     ]                                                              
 }                                                                  
 ```
+
+以上で完了
