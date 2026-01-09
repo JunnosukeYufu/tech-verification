@@ -12,7 +12,6 @@
 - SSM Managed Instance に必要な IAM 構成
 - Terraform での最小構成例
 - SSM が利用するアウトバウンド通信要件
-- 認識確認のチェックポイント
 
 ## 検証の背景
 
@@ -34,7 +33,7 @@ Amazon Linux 2023 では **SSM Agent は標準でインストール済み**で�
 
 ### Step0:環境構築
 
-terraformで検証環境を用意する。使用したtfファイルは以下。AMI IDは公式が提供しているID。
+terraformで検証環境を用意する。使用したTerraform設定ファイルは以下。AMI IDは公式が提供しているID。
 
 ```hcl
 # ---------------------------------------
@@ -155,7 +154,7 @@ resource "aws_security_group_rule" "ssh_in" {
 # ---------------------------------------
 resource "aws_key_pair" "ssh" {
   key_name   = "${var.project}-${var.environment}-keypair"
-  public_key = file("./vmimport-key.pub")
+  public_key = file("./<公開鍵>")
 
   tags = {
     Name    = "${var.project}-${var.environment}-keypair"
@@ -226,7 +225,7 @@ aws ec2 describe-instances \
 - IAMロールの作成時には **信頼ポリシー（AssumeRole ポリシー）の定義が必須**であることに注意。そのため後述のHCLの記載ではセクションを分けている。一方、カスタムIAM ポリシーの作成は必須ではなく、AWS管理ポリシーをアタッチするだけでもよい。
 - 作成した IAMロールは**直接 EC2 にアタッチすることはできず**、必ず**インスタンスプロファイルを介して関連付ける必要がある**。
 
-以下に、IAMロール、ポリシーのアタッチ、およびインスタンスプロファイル作成時に使用した Terraformを示す。
+以下に、IAMロール、ポリシーのアタッチ、およびインスタンスプロファイルを作成する Terraform設定ファイルを示す。
 
 ```hcl
 # ---------------------------------------
@@ -309,8 +308,10 @@ SSM Agentは、以下のAWSマネージドエンドポイントに対してア�
 - ssm.<region>.amazonaws.com
 - ec2messages.<region>.amazonaws.com
 - ssmmessages.<region>.amazonaws.com
-    - [https://docs.aws.amazon.com/ja_jp/systems-manager/latest/userguide/setup-create-vpc.html](https://docs.aws.amazon.com/ja_jp/systems-manager/latest/userguide/setup-create-vpc.html)
-    - [https://docs.aws.amazon.com/ja_jp/prescriptive-guidance/latest/patterns/connect-to-an-amazon-ec2-instance-by-using-session-manager.html](https://docs.aws.amazon.com/ja_jp/prescriptive-guidance/latest/patterns/connect-to-an-amazon-ec2-instance-by-using-session-manager.html)
+
+参考：[https://docs.aws.amazon.com/ja_jp/systems-manager/latest/userguide/setup-create-vpc.html](https://docs.aws.amazon.com/ja_jp/systems-manager/latest/userguide/setup-create-vpc.html)
+
+[https://docs.aws.amazon.com/ja_jp/prescriptive-guidance/latest/patterns/connect-to-an-amazon-ec2-instance-by-using-session-manager.html](https://docs.aws.amazon.com/ja_jp/prescriptive-guidance/latest/patterns/connect-to-an-amazon-ec2-instance-by-using-session-manager.html)
 
 そのため、EC2がプライベートサブネットに配置されている場合は、上記エンドポイントに対応する VPC エンドポイントを作成する必要がある。
 
