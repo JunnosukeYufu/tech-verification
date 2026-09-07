@@ -10,3 +10,4 @@
 - [GitHubをTerraformで管理する](./github-platform-iac-bootstrap/README.md)
 - [GitHub ActionsとTerraformでPRベースのCI/CD運用を構築する](./github-ci-cd-workflow/README.md)
 - [Active DirectoryのOU設計を比較する ― 組織改正に強い設計とは](./active-directory-ou-design-comparison/README.md)
+- [Active Directory：廃止済みDCの残存情報と不要サイトの削除を検証する](./active-directory-stale-dc-site-cleanup/README.md)
