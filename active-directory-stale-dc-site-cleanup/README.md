@@ -27,7 +27,7 @@ DC2008を停止した状態で以下を確認する。コマンドとGUI操作�
 | 確認項目 | コマンド・確認方法 | 期待する結果 |
 | --- | --- | --- |
 | FSMOの保持先 | `netdom query fsmo` | 全5役割が `DC2012R2-01.frslab.example.test` |
-| 登録されているDCとサイト | `Get-ADDomainController -Filter * | Select Name,Site` | DC2008がOLD-SITE、DC2012R2-01／02がMAIN-SITEに登録されている |
+| 登録されているDCとサイト | Get-ADDomainController -Filter * \| Select Name,Site | DC2008がOLD-SITE、DC2012R2-01／02がMAIN-SITEに登録されている |
 | 1号機の受信レプリケーション | `repadmin /showrepl DC2012R2-01` | DC2012R2-02からの各領域の最終複製試行は成功し、停止中のDC2008からの最終複製試行は失敗している |
 | 2号機の受信レプリケーション | `repadmin /showrepl DC2012R2-02` | DC2012R2-01からの各領域の最終複製試行が成功している |
 | SYSVOL・NETLOGON共有 | `net share` | 2012R2の両DCにSYSVOL・NETLOGON共有が存在する |
@@ -54,6 +54,7 @@ DC2012R2-01                   MAIN-SITE                                  True
 DC2012R2-02                   MAIN-SITE                                  True
 ```
 
+<br>
 DC2012R2-01の受信レプリケーションを確認する。停止済みのDC2008が複製元として残り、一部のパーティションで複製失敗が記録されていることを確認する。
 ※DNSパーティションには停止前の成功結果が残っているが、このまま時間が経てば失敗するはずなので失敗を待たずに検証を進める
 
@@ -124,31 +125,35 @@ DC=ForestDnsZones,DC=frslab,DC=example,DC=test
             DNS 参照エラーのため、DSA 操作を続行できません。
 
 ```
-
+<br>
 ［サーバー マネージャー］-［ツール］-［Active Directory サイトとサービス］を開き、接続先がDC2012R2-01であることを確認する。
 
 ［Sites］→［OLD-SITE］→［Servers］→［DC2008］を展開し、［NTDS Settings］を右クリックして［削除］を選択する。
 
 ![image.png](./images/image1.png)
 
+<br>
 [はい]を選択
 
 ![image.png](./images/image2.png)
 
+<br>
 ［完全にオフラインで、削除ウィザードを使用して削除できないこのドメイン コントローラーを削除する］にチェックを入れ、［削除］をクリックする。
-
 通常は削除対象のDC自身で降格処理を実施する。今回は、廃止済みで降格できないDCを想定しているため、DC2008を停止した状態で残存情報の削除を行う。
 
 ![image.png](./images/image3.png)
 
+<br>
 削除対象のDC2008がグローバルカタログであるため、確認画面が表示される。事前確認で、継続利用するDC2012R2-01／02もグローバルカタログであることを確認しているため、［はい］をクリックする。
 
 ![image.png](./images/image4.png)
 
+<br>
 NTDS Settingsが削除され、DC2008配下に子オブジェクトが残っていないことを確認する。続いてDC2008を右クリックし、［削除］を選択する。
 
 ![image.png](./images/image5.png)
 
+<br>
 [はい]を選択
 
 ![image.png](./images/image6.png)
@@ -161,18 +166,22 @@ NTDS Settingsが削除され、DC2008配下に子オブジェクトが残って�
 
 ![image.png](./images/image7.png)
 
+<br>
 [はい]を選択
 
 ![image.png](./images/image8.png)
 
+<br>
 OLD-SITEには標準オブジェクトであるServersコンテナーとNTDS Site Settingsが残っているため、子オブジェクトを含む削除の確認画面が表示される。［サブツリーの削除］にチェックを入れずに、［はい］をクリックしてOLD-SITEを削除する。
 
 ![image.png](./images/image9.png)
 
+<br>
 OLD-SITEが削除されたことを確認する。
 
 ![image.png](./images/image10.png)
 
+<br>
 続いて、OLD-SITEに関連付けていたサブネットの状態を確認する。サイトの削除後もサブネットオブジェクト自体は残るが、関連付け先のサイトは空欄となった。MAIN-SITEへ自動的に再割り当てされないため、継続利用するサブネットについては、適切なサイトへ手動で関連付ける必要がある。
 
 ![image.png](./images/image11.png)
@@ -196,6 +205,7 @@ DC2012R2-02             MAIN-SITE                          True
 Get-ADDomainController -Filter * -Server DC2012R2-02 | Select-Object Name, Site, IsGlobalCatalog
 ```
 
+<br>
 次にADサイトの一覧にMAIN-SITEだけが表示され、OLD-SITEが削除されていることを確認する。
 
 ```powershell
@@ -210,6 +220,7 @@ MAIN-SITE
 Get-ADReplicationSite -Filter * -Server DC2012R2-02 | Select-Object Name
 ```
 
+<br>
 各DCの受信レプリケーションを確認する。DC2008が入力方向の近隣サーバーから消え、DC2012R2-01／02間の各ディレクトリパーティションの最終複製試行が成功していることを確認する。
 
 ```powershell
@@ -249,10 +260,12 @@ DC=ForestDnsZones,DC=frslab,DC=example,DC=test
         DSA オブジェクト GUID: 52f07824-c34e-464a-a24a-27450d6144d8
        2026-09-07 18:58:48 の最後の試行は成功しました。
 
+<br>
 以下のコマンドでも同様に確認する
 repadmin /showrepl DC2012R2-02
 ```
 
+<br>
 続いて、レプリケーション全体の状態を確認する。ソースと宛先にDC2012R2-01／02だけが表示され、失敗数が0であることを確認する。
 
 ```powershell
@@ -274,6 +287,7 @@ repadmin /replsummary
  DC2012R2-02               30m:33s    0 /   5    0
 ```
 
+<br>
 FSMOの全5役割を、引き続きDC2012R2-01が保持していることを確認する。
 
 ```powershell
@@ -288,6 +302,7 @@ RID プール マネージャー        DC2012R2-01.frslab.example.test
 コマンドは正しく完了しました。
 ```
 
+<br>
 DC2008のコンピューターアカウントが存在しないことを確認する。なにも表示されなければ
 OK
 
@@ -296,6 +311,7 @@ Get-ADComputer -Filter 'Name -eq "DC2008"' -Server DC2012R2-01
 Get-ADComputer -Filter 'Name -eq "DC2008"' -Server DC2012R2-02
 ```
 
+<br>
 DC2008のDNSレコードが存在しないことを確認する。どちらも「DNS名が存在しない」旨のエラーになればOK
 
 ```powershell
@@ -303,6 +319,7 @@ Resolve-DnsName DC2008.frslab.example.test -Type A -Server 192.168.57.51
 Resolve-DnsName DC2008.frslab.example.test -Type A -Server 192.168.57.52
 ```
 
+<br>
 DC検出用SRVレコードも確認する。
 
 ```powershell
