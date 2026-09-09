@@ -2,7 +2,7 @@
 
 ## 概要
 
-前回の記事では、停止したDC2008の残存情報と不要なOLD-SITEを削除した。  
+[前回の記事](../active-directory-stale-dc-site-cleanup/README.md)では、停止したDC2008の残存情報と不要なOLD-SITEを削除した。  
 本記事では、機能レベルをWindows Server 2003から2008 R2へ引き上げ、Windows Server 2022への移行準備として、SYSVOLの複製方式をFRSからDFSRへ移行する。最後に、両DCへの反映とSYSVOLの複製状態を確認する。
 
 ## 機能レベルとSYSVOL複製方式の変更イメージ
