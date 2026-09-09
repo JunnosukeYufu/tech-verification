@@ -2,7 +2,7 @@
 
 実際に手を動かして検証した、インフラの設計・移行・自動化・運用に関する記録をまとめたリポジトリ。
 
-## 検証テーマ
+## 検証記事
 - [VirtualBox仮想マシンをAWS EC2に移行する](./vbox-to-ec2-migration/README.md)
 - [EC2をSSM Managed Instanceに認識させる](./ec2-ssm-managed-instance/README.md)
 - [なぜEC2にはVMwareのようなリモートコンソールが見当たらないのか](./aws-ec2-connect-models/README.md)
